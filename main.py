@@ -208,3 +208,64 @@ async def get_user(
         "message": "User details by user_id",
         "user": user_details
     }
+
+@app.post("/close")
+async def close_account(
+    authorization: str | None = Header(
+        default=None,
+        alias="Authorization"
+    )
+):
+    # 1. Check Authorization header
+    if not authorization:
+        return JSONResponse(
+            status_code=401,
+            content={"message": "Authentication failed"}
+        )
+
+    # 2. Decode Basic Authentication credentials
+    try:
+        scheme, encoded_credentials = authorization.split(" ", 1)
+
+        if scheme.lower() != "basic":
+            raise ValueError("Invalid authentication scheme")
+
+        decoded_credentials = base64.b64decode(
+            encoded_credentials,
+            validate=True
+        ).decode("utf-8")
+
+        user_id, password = decoded_credentials.split(":", 1)
+
+    except (ValueError, UnicodeDecodeError, binascii.Error):
+        return JSONResponse(
+            status_code=401,
+            content={"message": "Authentication failed"}
+        )
+
+    # 3. Check whether the account exists
+    if user_id not in users:
+        return JSONResponse(
+            status_code=401,
+            content={"message": "Authentication failed"}
+        )
+
+    # 4. Verify password
+    user = users[user_id]
+
+    if not verify_password(
+        password,
+        user["salt"],
+        user["password_hash"]
+    ):
+        return JSONResponse(
+            status_code=401,
+            content={"message": "Authentication failed"}
+        )
+
+    # 5. Remove the account
+    del users[user_id]
+
+    return {
+        "message": "Account and user successfully removed"
+    }
