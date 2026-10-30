@@ -1,9 +1,12 @@
 import re
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Header
 from fastapi.responses import JSONResponse
 
-from security import hash_password
+from security import hash_password, verify_password
+
+import base64
+import binascii
 
 
 app = FastAPI(
@@ -127,4 +130,81 @@ async def signup(request: Request):
             "user_id": user_id,
             "nickname": user_id
         }
+    }
+
+@app.get("/users/{user_id}")
+async def get_user(
+    user_id: str,
+    authorization: str | None = Header(
+        default=None,
+        alias="Authorization"
+    )
+):
+    # 1. Check whether the requested user exists
+    if user_id not in users:
+        return JSONResponse(
+            status_code=404,
+            content={"message": "No user found"}
+        )
+
+    # 2. Check whether the Authorization header exists
+    if not authorization:
+        return JSONResponse(
+            status_code=401,
+            content={"message": "Authentication failed"}
+        )
+
+    # 3. Decode Basic Authentication credentials
+    try:
+        scheme, encoded_credentials = authorization.split(" ", 1)
+
+        if scheme.lower() != "basic":
+            raise ValueError("Invalid authentication scheme")
+
+        decoded_credentials = base64.b64decode(
+            encoded_credentials,
+            validate=True
+        ).decode("utf-8")
+
+        credential_user_id, password = decoded_credentials.split(":", 1)
+
+    except (ValueError, UnicodeDecodeError, binascii.Error):
+        return JSONResponse(
+            status_code=401,
+            content={"message": "Authentication failed"}
+        )
+
+    # 4. Ensure the credentials belong to the requested user
+    if credential_user_id != user_id:
+        return JSONResponse(
+            status_code=401,
+            content={"message": "Authentication failed"}
+        )
+
+    # 5. Verify the password
+    user = users[user_id]
+
+    if not verify_password(
+        password,
+        user["salt"],
+        user["password_hash"]
+    ):
+        return JSONResponse(
+            status_code=401,
+            content={"message": "Authentication failed"}
+        )
+
+    # 6. Construct the response
+    user_details = {
+        "user_id": user_id,
+        "nickname": user.get("nickname") or user_id
+    }
+
+    # Include comment only when configured
+    if user.get("comment") is not None:
+        user_details["comment"] = user["comment"]
+
+    return {
+        "message": "User details by user_id",
+        "user": user_details
     }
